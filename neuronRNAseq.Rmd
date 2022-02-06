@@ -1,0 +1,95 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+#check if package exists, if not install
+```{r}
+ packages = c("Seurat")
+install.packages(setdiff(packages,row.names(installed.packages())))
+```
+# Load packages
+```{r}
+library(Seurat)
+library(dplyr)
+```
+
+```{r}
+#load data
+data = Read10X("U:/rnaseq/1.Project1/neurons_900_raw_gene_bc_matrices.tar/raw_gene_bc_matrices/mm10")
+#View count matrix
+#data[data@Dimnames[[1]][1:100],1:20]
+#create Seurat object 
+seurat = CreateSeuratObject(counts = data, project = "mouse_neuron_rnaseq",min.cells = 3,min.features = 200)
+```
+# Data quality check
+```{r}
+#view mitochondrial genes
+seurat[["percent.mt"]] = PercentageFeatureSet(seurat, pattern = "^MT-")
+VlnPlot(seurat,features =c("nCount_RNA","nFeature_RNA","percent.mt"),n=3)
+```
+#Normaliza data (for PCA)
+```{r}
+seurat = NormalizeData(seurat,method = "LogNormalize")
+```
+# Find high variable gene
+```{r}
+seurat = FindVariableFeatures(seurat, selection.method = "vst",nfeatures = 2000 )
+top20genes = head(VariableFeatures(seurat),20)
+#VariableFeaturePlot(seurat)
+
+LabelPoints(plot = VariableFeaturePlot(seurat),points = top20genes)
+```
+# Scale data
+## scaling all genes to make sure highly expressed gees don't dominate heatmap
+```{r}
+seurat = ScaleData(seurat)
+```
+#it's impossible to view 2000 views in one plot. Hence, we use dimensional reduction
+# Perform PCA reduction and visualize PCA results 
+```{r}
+seurat = RunPCA(seurat,verbose=F)
+#
+ElbowPlot(seurat,ndims=50)
+#from elbow plot, majority of variations are captured in the first 25 PCS
+```
+#UMAP : another dimensional reduction
+#non-linear dimension redution
+```{r}
+seurat = RunUMAP(seurat,dims = 1:25,verbose=F)
+```
+
+#Find cluster
+```{r}
+#Build the graph, what connect to what
+seurat = FindNeighbors(seurat, dims = 1:25)
+#identify cluster
+seurat = FindClusters(seurat,resolution = 0.2)
+```
+
+```{r}
+DimPlot(seurat, reduction = 'pca')
+DimPlot(seurat, reduction = 'umap')
+```
+# Find Markers for each cluster
+```{r}
+cluster_markers = FindAllMarkers(seurat, logfc.threshold = 0.25, only.pos = T)
+#get top genes for each cluster
+top_markers = cluster_markers %>% group_by(cluster) %>% top_n(n=5, avg_log2FC)
+#Visualize
+RidgePlot(seurat, features ="Hbb-bs")
+#heatmap
+top_genes = cluster_markers %>% group_by(cluster) %>% top_n(n=5, avg_log2FC) %>% pull(gene)%>%unique()
+DoHeatmap(seurat, features = top_genes)
+
+DotPlot(seurat, features = top_genes)
+```
